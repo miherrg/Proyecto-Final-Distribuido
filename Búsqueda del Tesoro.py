@@ -31,19 +31,27 @@ if __name__ == "__main__":
         comm.isend(key_loc, dest = other_teammate)
         tm_start_loc = comm.irecv(source = other_teammate).wait()
         visited_by_team.append(tm_start_loc)
+        
+    turn = 0
 
-    while not treasure_found:
+    while True:
+        turn += 1
+        if treasure_found:
+                print(f"Proceso {rank} terminado. Saliendo del bucle", flush=True)
+                break
+        debug_str = "ya se ha encontrado" if treasure_found else "aun no se ha encontrado"
+        print(f"Soy el proceso {rank}, estoy en el turno {turn} y creo que el tesoro {debug_str}", flush=True)
         if rank == 0:
             # Recivimos en el nodo maestro la posición de los distintos jugadores
             # y comprobamos si alguno ha ganado el juego
             for i in range(1,5):
-                current_loc = comm.recv(source = i)
+                current_loc = comm.irecv(source = i).wait()
                 if current_loc == key_loc:
                     winning_team = "Par" if i % 2 == 0 else "Impar"
-                    print(f"Gana el equipo {winning_team}", flush= True)
-                    treasure_found = comm.bcast(True, root = 0)
-                else:
-                    comm.send(False, dest = i, tag = 0)
+                    print(f"Proceso {i} encuentra el tesoro en la posición {key_loc}", flush = True)
+                    print(f"Gana el equipo {winning_team} en el turno {turn}", flush= True)
+                    treasure_found = True
+                    print("broadcast hecho", flush=True)
         else:
             # Escogemos una dirección aleatoria hasta que encontramos un movimiento legal.
             # Es decir, un movimiento que no se salga del tablero y que no vaya a una casilla que
@@ -68,15 +76,18 @@ if __name__ == "__main__":
                 if max(test_loc) < 20 and min(test_loc) >= 0 and (test_loc not in visited_by_team or tried_directions >= 4):
                     legal_move = True
                     key_loc = test_loc
-
             print(f"Proceso {rank}, nueva casilla {key_loc}", flush= True)
             # Enviamos la nueva posición al nodo maestro
             # para comprobar si hemos encontrado el tesoro.
-            comm.send(key_loc, dest = 0, tag = 0)
-            have_i_found_it = comm.recv(source = 0)
-            # Si no se ha encontrado, actualizamos la lista de posiciones comprobadas
-            if not have_i_found_it:
-                visited_by_team.append(key_loc)
-                comm.isend(key_loc, dest = other_teammate)
-                tm_visited_loc = comm.irecv(source = other_teammate).wait()
-                visited_by_team.append(tm_visited_loc)
+            comm.isend(key_loc, dest = 0, tag = 0)
+
+            # Actualizamos la lista de posiciones comprobadas
+
+            visited_by_team.append(key_loc)
+            comm.isend(key_loc, dest = other_teammate)
+            print(f"Turno {turn}. Posición enviada de {rank} a {other_teammate}", flush=True)
+            tm_visited_loc = comm.irecv(source = other_teammate).wait()
+            print(f"Turno {turn}. Posición de {other_teammate} recibida a {rank}", flush=True)
+            visited_by_team.append(tm_visited_loc)
+        # Hacemos el broadcast para informar a los nodos hijo si se ha encontrado el tesoro o no
+        treasure_found = comm.bcast(treasure_found, root = 0)
